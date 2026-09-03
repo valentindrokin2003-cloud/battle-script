@@ -8,7 +8,10 @@
 - [`COMPETITIVE_ANALYSIS.md`](./COMPETITIVE_ANALYSIS.md) — детальный разбор конкурентов.
 - [`docs/superpowers/specs/`](./docs/superpowers/specs/) — versioned design-спеки (spec-driven development), по одной на архитектурное решение или фичу.
 - [`docs/superpowers/plans/`](./docs/superpowers/plans/) — исполняемые планы реализации, привязанные к спекам.
+- [`backend/README.md`](./backend/README.md) — что уже реализовано в backend и что нет.
 
 ## Текущий статус
 
-Фаза 0 (по дорожной карте бизнес-плана): закрытый прототип для школьного пилота, веб-платформа. Архитектура зафиксирована в [`docs/superpowers/specs/2026-09-03-battle-script-hld-design.md`](./docs/superpowers/specs/2026-09-03-battle-script-hld-design.md). Реализация ещё не начата.
+Фаза 0 (по дорожной карте бизнес-плана): закрытый прототип для школьного пилота, веб-платформа. Архитектура зафиксирована в трёх спеках в [`docs/superpowers/specs/`](./docs/superpowers/specs/): HLD, схема действий классов героев, скрипт боссов.
+
+Backend: доменное ядро (`internal/service`) реализовано и покрыто тестами — закрытый словарь тактик, валидация `IntentClassification`, модель боссов, детерминированный движок выбора действия. HTTP-слой, персистентность, модерация, LLM-адаптер и накопление лога боя ещё не реализованы — подробности в [`backend/README.md`](./backend/README.md).
