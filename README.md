@@ -9,6 +9,8 @@
 - [`docs/superpowers/specs/`](./docs/superpowers/specs/) — versioned design-спеки (spec-driven development), по одной на архитектурное решение или фичу.
 - [`docs/superpowers/plans/`](./docs/superpowers/plans/) — исполняемые планы реализации, привязанные к спекам.
 - [`backend/README.md`](./backend/README.md) — что уже реализовано в backend и что нет.
+- [`docs/architecture/hld.md`](./docs/architecture/hld.md) — текущее состояние архитектуры (живой документ, не история решений).
+- [`docs/architecture-decisions.md`](./docs/architecture-decisions.md) — ADR-лог: только дорогие/трудно обратимые решения.
 
 ## Текущий статус
 
