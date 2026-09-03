@@ -16,8 +16,9 @@ Battle Script — веб-автобаттлер, где ребёнок пише�
 | Детерминированный выбор действия героя (`SelectAction`) | ✅ реализован | `backend/internal/service/rule_engine.go` |
 | Полный цикл боя (урон/лечение/щит/таргетинг босса/`BattleLog`) | ✅ реализован | `backend/internal/service/battle_engine.go`, `battle_state.go` |
 | Сид-контент Фазы 0 (3 класса героев, 3 босса, иллюстративные числа) | ✅ реализован | `backend/internal/service/phase0_content.go` |
-| `ModerationModule` | ❌ не реализован | — |
-| `IntentClassifier` — реальный LLM-адаптер | ❌ не реализован (есть только валидатор ответа) | — |
+| `ModerationModule` | ✅ реализован (Phase-0 минимум, не прошёл юридическое ревью) | `backend/internal/service/moderation.go` |
+| Порт `IntentClassifier` + retry/fallback-оркестрация | ✅ реализован | `backend/internal/service/classifier.go` |
+| `IntentClassifier` — реальный LLM-адаптер | ❌ не реализован (есть только dev-заглушка `LocalHeuristicClassifier`, нет доступа к API-ключу провайдера) | `backend/internal/service/local_heuristic_classifier.go` |
 | HTTP API (`cmd/api`, `internal/handler`) | ❌ не реализован | — |
 | Персистентность (`internal/repository`, `db/migrations`, Postgres) | ❌ не реализован | — |
 | `ClassroomCohort`/`PlayerSession` авторизация | ❌ не реализована | — |
@@ -30,12 +31,15 @@ Backend — модульный монолит, один процесс (`backend
 ```text
 Web App (не реализован)
   -> Backend API (не реализован)
-      -> ModerationModule (не реализован)
-      -> IntentClassifier port -> LLM Adapter (не реализованы; есть только
-         server-side валидатор ожидаемого формата ответа)
-      -> BattleEngine (реализован, покрыт тестами) [ЭТО ЕСТЬ]
+      -> ModerationModule (реализован: BasicModerator) [ЕСТЬ]
+      -> IntentClassifier port + retry/fallback-оркестрация (реализованы) [ЕСТЬ]
+          -> LocalHeuristicClassifier (dev-заглушка, реализована) [ЕСТЬ]
+          -> реальный LLM-адаптер (не реализован — нет API-ключа)
+      -> BattleEngine (реализован, покрыт тестами) [ЕСТЬ]
       -> PostgreSQL (не реализован)
 ```
+
+Полный путь «сырой текст → действие» уже собран и протестирован end-to-end (`local_heuristic_classifier_test.go: TestFullPipeline_TextToAction`) — не хватает только настоящего LLM за портом и HTTP-обвязки вокруг этого пути.
 
 ## Доменная модель (реализованная часть)
 
