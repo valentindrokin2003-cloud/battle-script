@@ -3,18 +3,18 @@ package service
 // BattleEvent is one logged action within a BattleTurn, per
 // docs/superpowers/specs/2026-09-03-battle-turn-resolution-design.md.
 type BattleEvent struct {
-	Actor         string // "hero:<id>" or "boss"
-	ActionType    string
-	Target        string // hero id, "boss", "all", or "" for no target
-	Amount        float64
-	TargetHPAfter float64
+	Actor         string  `json:"actor"` // "hero:<id>" or "boss"
+	ActionType    string  `json:"action_type"`
+	Target        string  `json:"target,omitempty"` // hero id, "boss", "all", or "" for no target
+	Amount        float64 `json:"amount"`
+	TargetHPAfter float64 `json:"target_hp_after"`
 }
 
 // BattleTurn is one full round: every living hero acts in roster order,
 // then the boss acts once.
 type BattleTurn struct {
-	TurnNumber int
-	Events     []BattleEvent
+	TurnNumber int           `json:"turn_number"`
+	Events     []BattleEvent `json:"events"`
 }
 
 type BattleOutcome string
@@ -27,16 +27,16 @@ const (
 
 // BattleResult is the outcome of a fully-run BattleSession.
 type BattleResult struct {
-	Outcome    BattleOutcome
-	TurnsTaken int
-	BossID     string
+	Outcome    BattleOutcome `json:"outcome"`
+	TurnsTaken int           `json:"turns_taken"`
+	BossID     string        `json:"boss_id"`
 }
 
 // BattleLog is the complete, ordered record of a BattleSession.
 type BattleLog struct {
-	BossID string
-	Turns  []BattleTurn
-	Result BattleResult
+	BossID string       `json:"boss_id"`
+	Turns  []BattleTurn `json:"turns"`
+	Result BattleResult `json:"result"`
 }
 
 // DefaultMaxTurns is the Phase 0 defensive turn cap from the turn

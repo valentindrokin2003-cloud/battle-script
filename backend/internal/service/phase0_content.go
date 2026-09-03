@@ -97,6 +97,17 @@ var heroBaseDamage = map[HeroClass]map[ActionType]float64{
 	},
 }
 
+// Phase0Bosses returns the Phase 0 boss catalog keyed by BossID, for
+// reuse by the HTTP layer and its tests.
+func Phase0Bosses() map[string]Boss {
+	bosses := []Boss{FrostWardenBoss(), ShadowHunterBoss(), StoneGiantBoss()}
+	out := make(map[string]Boss, len(bosses))
+	for _, b := range bosses {
+		out[b.BossID] = b
+	}
+	return out
+}
+
 type bossDamage struct {
 	Single float64
 	Cleave float64

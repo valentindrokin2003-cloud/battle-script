@@ -7,6 +7,7 @@ Go module for Battle Script's Phase 0 backend. Implements the design from:
 - [`../docs/superpowers/specs/2026-09-03-boss-script-design.md`](../docs/superpowers/specs/2026-09-03-boss-script-design.md)
 - [`../docs/superpowers/specs/2026-09-03-battle-turn-resolution-design.md`](../docs/superpowers/specs/2026-09-03-battle-turn-resolution-design.md)
 - [`../docs/superpowers/specs/2026-09-03-moderation-and-classifier-port-design.md`](../docs/superpowers/specs/2026-09-03-moderation-and-classifier-port-design.md)
+- [`../docs/superpowers/specs/2026-09-03-http-api-design.md`](../docs/superpowers/specs/2026-09-03-http-api-design.md)
 
 ## What's implemented
 
@@ -24,12 +25,18 @@ Go module for Battle Script's Phase 0 backend. Implements the design from:
 
 Every piece above has unit tests. `battle_engine_test.go` includes the property test promised by the boss script spec (phase-gated `frost_bolt` never loses to the naive always-cast version), scenario tests for all three bosses' teaching mechanics, a turn-limit abort test, and a full-battle determinism regression test. `local_heuristic_classifier_test.go` includes the project's first end-to-end pipeline test: raw text → moderation → classification → validation → `SelectAction`.
 
+`internal/handler` — thin Gin delivery layer, stateless (no persistence, no auth):
+
+- `GET /healthz`, `GET /api/v1/bosses`, `GET /api/v1/bosses/:boss_id`, `POST /api/v1/tactics/classify`, `POST /api/v1/battles` — see the HTTP API spec for the full contract.
+- `cmd/api/main.go` wires `BasicModerator` + `LocalHeuristicClassifier` (the dev stand-in, still no real LLM) into the router and runs on `$PORT` (default 8080).
+- `TestHTTPPipeline_ClassifyThenBattle` exercises the full path over a real `httptest.Server` and `http.Client`, not direct Go calls.
+
 ## What's not implemented yet
 
-- HTTP layer (`cmd/api`, `internal/handler`) — no routes exist yet.
-- Persistence (`internal/repository`, `db/migrations`) — nothing is durable yet; everything above operates on in-memory Go values, one `RunBattle` call at a time.
+- Persistence (`internal/repository`, `db/migrations`) — nothing is durable yet; everything above operates on in-memory Go values, one `RunBattle` call at a time, and the HTTP API is fully stateless (client resubmits the classified `intent` on every `/battles` call).
 - A real LLM adapter behind `IntentClassifier` — blocked on provider API access, not on architecture.
-- `ClassroomCohort` / `PlayerSession` auth.
+- `ClassroomCohort` / `PlayerSession` auth — no session concept exists yet; every endpoint is open.
+- `GET /readyz` — no external dependency exists yet to check readiness against.
 - Mana costs, cooldowns, and boss status effects (`cleanse` has no debuff content to remove yet, and can't target one specific status yet either — see the moderation/classifier spec's open questions) — explicit non-goals of the current iteration.
 
 ## Running checks

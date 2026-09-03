@@ -114,13 +114,13 @@
 {
   "turn_number": 3,
   "events": [
-    { "actor": "hero:mage-1", "action": { "type": "frost_bolt", "target": "boss" }, "amount": 18, "boss_hp_after": 640 },
-    { "actor": "boss", "action": { "type": "single_target_hit", "target": "hero:tank-1" }, "amount": 12, "target_hp_after": 88 }
+    { "actor": "hero:mage-1", "action_type": "frost_bolt", "target": "boss", "amount": 18, "target_hp_after": 640 },
+    { "actor": "boss", "action_type": "single_target_hit", "target": "tank-1", "amount": 12, "target_hp_after": 88 }
   ]
 }
 ```
 
-`BattleLog` — упорядоченный список `BattleTurn` за весь бой. `BattleResult` — `{ outcome: "victory"|"defeat"|"aborted", turns_taken: int, boss_id }`. Снимок состояния ростера на конец боя (для истории/статистики) в текущей реализации не хранится — при необходимости добавляется отдельным полем, когда появится персистентность `BattleSession`.
+`actor` различает героя (`"hero:<id>"`) и босса (`"boss"`); `target` для события босса — это ID героя (без префикса `hero:`), а не наоборот, потому что цель всегда однозначна по контексту `actor`. `BattleLog` — `{ boss_id, turns: [BattleTurn], result: BattleResult }`, упорядоченный список `BattleTurn` за весь бой. `BattleResult` — `{ outcome: "victory"|"defeat"|"aborted", turns_taken: int, boss_id }`. Снимок состояния ростера на конец боя (для истории/статистики) в текущей реализации не хранится — при необходимости добавляется отдельным полем, когда появится персистентность `BattleSession`.
 
 ## Условия завершения боя
 
