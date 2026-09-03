@@ -4,7 +4,7 @@
 
 ## Итог в двух словах
 
-Battle Script — веб-автобаттлер, где ребёнок пишет тактику текстом, LLM переводит её в закрытый набор действий, а бой разыгрывает детерминированный движок. Реализовано и протестировано: доменное ядро боевой системы и HTTP API поверх него (стейтлес, без персистентности). Не реализовано: БД, сам вызов настоящего LLM, фронтенд, авторизация.
+Battle Script — веб-автобаттлер, где ребёнок пишет тактику текстом, LLM переводит её в закрытый набор действий, а бой разыгрывает детерминированный движок. Реализовано и протестировано: доменное ядро боевой системы, HTTP API поверх него и персистентность боёв в PostgreSQL. Не реализовано: сам вызов настоящего LLM, фронтенд, авторизация/`PlayerSession`.
 
 ## Компоненты и их статус
 
@@ -19,14 +19,14 @@ Battle Script — веб-автобаттлер, где ребёнок пише�
 | `ModerationModule` | ✅ реализован (Phase-0 минимум, не прошёл юридическое ревью) | `backend/internal/service/moderation.go` |
 | Порт `IntentClassifier` + retry/fallback-оркестрация | ✅ реализован | `backend/internal/service/classifier.go` |
 | `IntentClassifier` — реальный LLM-адаптер | ❌ не реализован (есть только dev-заглушка `LocalHeuristicClassifier`, нет доступа к API-ключу провайдера) | `backend/internal/service/local_heuristic_classifier.go` |
-| HTTP API (5 эндпоинтов: healthz, bosses×2, classify, battles) | ✅ реализован (стейтлес, без auth) | `backend/internal/handler/`, `backend/cmd/api/main.go` |
-| Персистентность (`internal/repository`, `db/migrations`, Postgres) | ❌ не реализован | — |
-| `ClassroomCohort`/`PlayerSession` авторизация | ❌ не реализована | — |
+| HTTP API (7 эндпоинтов: healthz, readyz, bosses×2, classify, battles×2) | ✅ реализован (без auth) | `backend/internal/handler/`, `backend/cmd/api/main.go` |
+| Персистентность боёв (`internal/repository`, `internal/migrate`, `cmd/migrate`, `db/migrations`) | ✅ реализован (только `battle_sessions`, анонимно — без привязки к игроку) | `backend/internal/repository/`, `backend/internal/migrate/` |
+| `ClassroomCohort`/`PlayerSession` авторизация | ❌ не реализована — персистентность есть, но бои анонимны | — |
 | Web-клиент | ❌ не реализован | — |
 
 ## Архитектура (целевая, из HLD-спеки)
 
-Backend — модульный монолит, один процесс (`backend-api`) для Фазы 0, без отдельного worker-процесса (осознанное решение — см. [ADR-001](../architecture-decisions.md#adr-001)). Слои: `delivery → application/domain → infrastructure`. `delivery` (`internal/handler`, тонкий Gin-слой) и `domain` (`internal/service`) реализованы; `infrastructure` (Postgres/персистентность) — ещё нет, поэтому весь `delivery`-слой сейчас стейтлес.
+Backend — модульный монолит, один процесс (`backend-api`) для Фазы 0, без отдельного worker-процесса (осознанное решение — см. [ADR-001](../architecture-decisions.md#adr-001)). Слои: `delivery → application/domain → infrastructure`. Все три реализованы: `delivery` (`internal/handler`), `domain` (`internal/service`), `infrastructure` (`internal/repository`, `internal/migrate` — Postgres).
 
 ```text
 Web App (не реализован)
@@ -36,11 +36,11 @@ Web App (не реализован)
           -> LocalHeuristicClassifier (dev-заглушка, реализована) [ЕСТЬ]
           -> реальный LLM-адаптер (не реализован — нет API-ключа)
       -> BattleEngine (реализован, покрыт тестами) [ЕСТЬ]
-      -> PostgreSQL (не реализован — HTTP-слой пока стейтлес, клиент присылает
-         классифицированный intent заново на каждый /battles)
+      -> BattleRepository port -> PostgresBattleRepository (реализованы) [ЕСТЬ]
+          -> PostgreSQL 16 (battle_sessions, анонимно) [ЕСТЬ]
 ```
 
-Полный путь «сырой текст → действие» уже собран и протестирован end-to-end дважды: на уровне Go-вызовов (`TestFullPipeline_TextToAction`) и на уровне реального HTTP поверх `httptest.Server` (`TestHTTPPipeline_ClassifyThenBattle`) — работает и через `curl` на живом `go run ./cmd/api`. Не хватает только настоящего LLM за портом и персистентности.
+Полный путь «сырой текст → действие → сохранённый бой» уже собран и протестирован end-to-end на трёх уровнях: Go-вызовы (`TestFullPipeline_TextToAction`), реальный HTTP поверх `httptest.Server` (`TestHTTPPipeline_ClassifyThenBattle`, включая `POST /battles` → `id` → `GET /battles/{id}`), и вручную через `curl` на живом `go run ./cmd/api` с реальным Postgres. Не хватает только настоящего LLM за портом и авторизации — бои по-прежнему анонимны.
 
 ## Доменная модель (реализованная часть)
 
@@ -51,8 +51,9 @@ Web App (не реализован)
 - `Boss`, `BossPhase` — контент-модель босса (`boss.go`).
 - `HeroDef`, `heroLiveState`, `battleState` (неэкспортируемые, внутреннее состояние симуляции) — `battle_state.go`.
 - `BattleEvent`, `BattleTurn`, `BattleResult`, `BattleLog` — журнал и итог боя (`battle_engine.go`).
+- `BattleRecord`, `HeroRosterEntry`, `BattleRepository` (порт) — персистентность боя (`battle_repository.go`); `PostgresBattleRepository` — Postgres-адаптер (`internal/repository`).
 
-Не реализованы (есть только в спеке): `ClassroomCohort`, `PlayerSession`, `PromptSubmission`, `ModerationEvent`, `Achievement` — эти сущности появятся вместе с HTTP-слоем/персистентностью.
+Не реализованы (есть только в спеке): `ClassroomCohort`, `PlayerSession`, `PromptSubmission`, `ModerationEvent`, `Achievement` — появятся вместе с авторизацией.
 
 ## Известные дизайн-решения, вытекшие из реализации (не были в исходных спеках)
 

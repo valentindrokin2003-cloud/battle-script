@@ -2,7 +2,9 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,8 +14,8 @@ import (
 	"github.com/valentindrokin2003-cloud/battle-script/backend/internal/service"
 )
 
-func newBattlesHandler() BattlesHandler {
-	return BattlesHandler{Catalog: service.Phase0Bosses()}
+func newBattlesHandler(repo service.BattleRepository) BattlesHandler {
+	return BattlesHandler{Catalog: service.Phase0Bosses(), Repository: repo}
 }
 
 func doBattle(t *testing.T, r *gin.Engine, body any) *httptest.ResponseRecorder {
@@ -54,7 +56,8 @@ func fullTeamRequest() BattleRequest {
 }
 
 func TestBattlesHandler_Run_Victory(t *testing.T) {
-	h := newBattlesHandler()
+	repo := newFakeBattleRepository()
+	h := newBattlesHandler(repo)
 	r := newTestRouter()
 	r.POST("/api/v1/battles", h.Run)
 
@@ -63,20 +66,85 @@ func TestBattlesHandler_Run_Victory(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
 	}
-	var log service.BattleLog
-	if err := json.Unmarshal(rec.Body.Bytes(), &log); err != nil {
+	var resp BattleResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if log.Result.Outcome != service.OutcomeVictory {
-		t.Errorf("Outcome = %v, want victory", log.Result.Outcome)
+	if resp.ID == "" {
+		t.Error("expected non-empty id in response")
 	}
-	if len(log.Turns) == 0 {
+	if resp.Result.Outcome != service.OutcomeVictory {
+		t.Errorf("Outcome = %v, want victory", resp.Result.Outcome)
+	}
+	if len(resp.Turns) == 0 {
 		t.Error("expected non-empty Turns in response")
+	}
+	if _, err := repo.Get(context.Background(), resp.ID); err != nil {
+		t.Errorf("battle was not actually persisted: %v", err)
 	}
 }
 
+func TestBattlesHandler_Run_PersistenceFailure(t *testing.T) {
+	repo := newFakeBattleRepository()
+	repo.saveErr = errors.New("connection refused")
+	h := newBattlesHandler(repo)
+	r := newTestRouter()
+	r.POST("/api/v1/battles", h.Run)
+
+	rec := doBattle(t, r, fullTeamRequest())
+
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502; body: %s", rec.Code, rec.Body.String())
+	}
+	assertErrorBody(t, rec.Body.Bytes(), "persistence_failed")
+}
+
+func TestBattlesHandler_Get_Found(t *testing.T) {
+	repo := newFakeBattleRepository()
+	h := newBattlesHandler(repo)
+	r := newTestRouter()
+	r.POST("/api/v1/battles", h.Run)
+	r.GET("/api/v1/battles/:id", h.Get)
+
+	postRec := doBattle(t, r, fullTeamRequest())
+	var posted BattleResponse
+	if err := json.Unmarshal(postRec.Body.Bytes(), &posted); err != nil {
+		t.Fatalf("invalid JSON from POST: %v", err)
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/battles/"+posted.ID, nil)
+	getRec := httptest.NewRecorder()
+	r.ServeHTTP(getRec, getReq)
+
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", getRec.Code, getRec.Body.String())
+	}
+	var got BattleResponse
+	if err := json.Unmarshal(getRec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if got.ID != posted.ID || got.Result.Outcome != posted.Result.Outcome {
+		t.Errorf("GET result %+v does not match POST result %+v", got, posted)
+	}
+}
+
+func TestBattlesHandler_Get_NotFound(t *testing.T) {
+	h := newBattlesHandler(newFakeBattleRepository())
+	r := newTestRouter()
+	r.GET("/api/v1/battles/:id", h.Get)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/battles/does-not-exist", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404; body: %s", rec.Code, rec.Body.String())
+	}
+	assertErrorBody(t, rec.Body.Bytes(), "battle_not_found")
+}
+
 func TestBattlesHandler_Run_InvalidIntent(t *testing.T) {
-	h := newBattlesHandler()
+	h := newBattlesHandler(newFakeBattleRepository())
 	r := newTestRouter()
 	r.POST("/api/v1/battles", h.Run)
 
@@ -94,7 +162,7 @@ func TestBattlesHandler_Run_InvalidIntent(t *testing.T) {
 }
 
 func TestBattlesHandler_Run_UnknownBoss(t *testing.T) {
-	h := newBattlesHandler()
+	h := newBattlesHandler(newFakeBattleRepository())
 	r := newTestRouter()
 	r.POST("/api/v1/battles", h.Run)
 

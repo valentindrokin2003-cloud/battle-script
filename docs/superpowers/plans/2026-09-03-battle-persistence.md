@@ -60,4 +60,4 @@ curl localhost:8080/api/v1/battles/<id>                 # тот же резул
 
 ## Статус
 
-Не начато — план написан до кода.
+Выполнено. Red→green для каждого файла, все тесты, требующие БД, прогонялись на реальном локальном PostgreSQL 16 (Homebrew, без Docker), не на моках — кроме юнит-тестов `internal/handler`, где для скорости и изоляции 502-ветки используется `fakeBattleRepository`, а полный HTTP round-trip проверен на реальной `battle_script_test`. `make check` чист. Ручной прогон — [`docs/superpowers/verification/2026-09-03-battle-persistence.md`](../verification/2026-09-03-battle-persistence.md).

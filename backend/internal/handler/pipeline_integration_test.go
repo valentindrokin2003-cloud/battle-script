@@ -7,15 +7,30 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/gin-gonic/gin"
+
+	"github.com/valentindrokin2003-cloud/battle-script/backend/internal/repository"
 	"github.com/valentindrokin2003-cloud/battle-script/backend/internal/service"
+	"github.com/valentindrokin2003-cloud/battle-script/backend/internal/testutil"
 )
+
+// newTestRouterWithDB opens a real TEST_DATABASE_URL connection (skips
+// the test if unset) and wires it into a full router, so these
+// integration tests exercise real persistence, not a fake.
+func newTestRouterWithDB(t *testing.T) *gin.Engine {
+	t.Helper()
+	db := testutil.OpenTestDB(t)
+	t.Cleanup(func() { _ = db.Close() })
+	repo := repository.NewPostgresBattleRepository(db)
+	return NewRouter(service.Phase0Bosses(), service.BasicModerator{}, service.LocalHeuristicClassifier{}, repo, db)
+}
 
 // TestHTTPPipeline_ClassifyThenBattle is the HTTP-level counterpart to
 // internal/service's TestFullPipeline_TextToAction: the same journey,
 // but over a real network listener via httptest.Server and a real
 // http.Client, not direct Go function calls.
 func TestHTTPPipeline_ClassifyThenBattle(t *testing.T) {
-	router := NewRouter(service.Phase0Bosses(), service.BasicModerator{}, service.LocalHeuristicClassifier{})
+	router := newTestRouterWithDB(t)
 	srv := httptest.NewServer(router)
 	defer srv.Close()
 
@@ -65,8 +80,8 @@ func TestHTTPPipeline_ClassifyThenBattle(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("battle: status = %d", resp.StatusCode)
 	}
-	var log service.BattleLog
-	if err := json.NewDecoder(resp.Body).Decode(&log); err != nil {
+	var battleResp BattleResponse
+	if err := json.NewDecoder(resp.Body).Decode(&battleResp); err != nil {
 		t.Fatalf("decode battle response: %v", err)
 	}
 	// This test's job is proving the HTTP wiring (classify -> battle over
@@ -78,22 +93,56 @@ func TestHTTPPipeline_ClassifyThenBattle(t *testing.T) {
 	// (shield never regenerates) stays true forever and the tank sits
 	// out the rest of the fight — a realistic tactic-writing mistake, not
 	// an engine bug. So just assert the pipeline produced a structurally
-	// valid, terminated battle.
-	switch log.Result.Outcome {
+	// valid, terminated, persisted battle.
+	switch battleResp.Result.Outcome {
 	case service.OutcomeVictory, service.OutcomeDefeat, service.OutcomeAborted:
 	default:
-		t.Errorf("Outcome = %q, not one of victory/defeat/aborted", log.Result.Outcome)
+		t.Errorf("Outcome = %q, not one of victory/defeat/aborted", battleResp.Result.Outcome)
 	}
-	if len(log.Turns) == 0 {
+	if len(battleResp.Turns) == 0 {
 		t.Error("expected non-empty Turns in response")
 	}
-	if log.BossID != "frost_warden" {
-		t.Errorf("BossID = %q, want frost_warden", log.BossID)
+	if battleResp.BossID != "frost_warden" {
+		t.Errorf("BossID = %q, want frost_warden", battleResp.BossID)
+	}
+	if battleResp.ID == "" {
+		t.Fatal("expected non-empty id in response")
+	}
+
+	getResp, err := http.Get(srv.URL + "/api/v1/battles/" + battleResp.ID)
+	if err != nil {
+		t.Fatalf("GET battle by id failed: %v", err)
+	}
+	defer func() { _ = getResp.Body.Close() }()
+	if getResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET battle: status = %d", getResp.StatusCode)
+	}
+	var fetched BattleResponse
+	if err := json.NewDecoder(getResp.Body).Decode(&fetched); err != nil {
+		t.Fatalf("decode GET response: %v", err)
+	}
+	if fetched.ID != battleResp.ID || fetched.Result.Outcome != battleResp.Result.Outcome || len(fetched.Turns) != len(battleResp.Turns) {
+		t.Errorf("GET result %+v does not match what POST persisted %+v", fetched, battleResp)
+	}
+}
+
+func TestHTTPPipeline_Readyz(t *testing.T) {
+	router := newTestRouterWithDB(t)
+	srv := httptest.NewServer(router)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/readyz")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
 }
 
 func TestHTTPPipeline_Healthz(t *testing.T) {
-	router := NewRouter(service.Phase0Bosses(), service.BasicModerator{}, service.LocalHeuristicClassifier{})
+	router := newTestRouterWithDB(t)
 	srv := httptest.NewServer(router)
 	defer srv.Close()
 

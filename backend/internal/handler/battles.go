@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -24,10 +25,19 @@ type BattleRequest struct {
 	Heroes []BattleHeroInput `json:"heroes"`
 }
 
+// BattleResponse is the POST /api/v1/battles and GET /api/v1/battles/:id
+// response body: the persisted id alongside the same BattleLog shape as
+// before persistence existed.
+type BattleResponse struct {
+	ID string `json:"id"`
+	service.BattleLog
+}
+
 // BattlesHandler runs a full BattleSession from a client-supplied
-// roster and returns the resulting BattleLog.
+// roster, persists it, and returns the resulting BattleLog plus its id.
 type BattlesHandler struct {
-	Catalog map[string]service.Boss
+	Catalog    map[string]service.Boss
+	Repository service.BattleRepository
 }
 
 func (h BattlesHandler) Run(c *gin.Context) {
@@ -64,5 +74,34 @@ func (h BattlesHandler) Run(c *gin.Context) {
 	}
 
 	log := service.RunBattle(boss, heroDefs, service.DefaultMaxTurns)
-	c.JSON(http.StatusOK, log)
+
+	roster := make([]service.HeroRosterEntry, len(heroDefs))
+	for i, hd := range heroDefs {
+		roster[i] = service.HeroRosterEntry{ID: hd.ID, HeroClass: hd.HeroClass}
+	}
+	id, err := h.Repository.Save(c.Request.Context(), service.BattleRecord{
+		BossID:     boss.BossID,
+		HeroRoster: roster,
+		Log:        log,
+	})
+	if err != nil {
+		writeError(c, http.StatusBadGateway, "persistence_failed", "battle was resolved but could not be saved: "+err.Error())
+		return
+	}
+
+	c.JSON(http.StatusOK, BattleResponse{ID: id, BattleLog: log})
+}
+
+// Get handles GET /api/v1/battles/:id.
+func (h BattlesHandler) Get(c *gin.Context) {
+	record, err := h.Repository.Get(c.Request.Context(), c.Param("id"))
+	if errors.Is(err, service.ErrBattleNotFound) {
+		writeError(c, http.StatusNotFound, "battle_not_found", "no such battle id")
+		return
+	}
+	if err != nil {
+		writeError(c, http.StatusBadGateway, "persistence_failed", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, BattleResponse{ID: record.ID, BattleLog: record.Log})
 }

@@ -8,6 +8,7 @@ Go module for Battle Script's Phase 0 backend. Implements the design from:
 - [`../docs/superpowers/specs/2026-09-03-battle-turn-resolution-design.md`](../docs/superpowers/specs/2026-09-03-battle-turn-resolution-design.md)
 - [`../docs/superpowers/specs/2026-09-03-moderation-and-classifier-port-design.md`](../docs/superpowers/specs/2026-09-03-moderation-and-classifier-port-design.md)
 - [`../docs/superpowers/specs/2026-09-03-http-api-design.md`](../docs/superpowers/specs/2026-09-03-http-api-design.md)
+- [`../docs/superpowers/specs/2026-09-03-battle-persistence-design.md`](../docs/superpowers/specs/2026-09-03-battle-persistence-design.md)
 
 ## What's implemented
 
@@ -25,18 +26,26 @@ Go module for Battle Script's Phase 0 backend. Implements the design from:
 
 Every piece above has unit tests. `battle_engine_test.go` includes the property test promised by the boss script spec (phase-gated `frost_bolt` never loses to the naive always-cast version), scenario tests for all three bosses' teaching mechanics, a turn-limit abort test, and a full-battle determinism regression test. `local_heuristic_classifier_test.go` includes the project's first end-to-end pipeline test: raw text → moderation → classification → validation → `SelectAction`.
 
-`internal/handler` — thin Gin delivery layer, stateless (no persistence, no auth):
+`internal/handler` — thin Gin delivery layer:
 
-- `GET /healthz`, `GET /api/v1/bosses`, `GET /api/v1/bosses/:boss_id`, `POST /api/v1/tactics/classify`, `POST /api/v1/battles` — see the HTTP API spec for the full contract.
-- `cmd/api/main.go` wires `BasicModerator` + `LocalHeuristicClassifier` (the dev stand-in, still no real LLM) into the router and runs on `$PORT` (default 8080).
-- `TestHTTPPipeline_ClassifyThenBattle` exercises the full path over a real `httptest.Server` and `http.Client`, not direct Go calls.
+- `GET /healthz` (pure liveness), `GET /readyz` (pings Postgres), `GET /api/v1/bosses`, `GET /api/v1/bosses/:boss_id`, `POST /api/v1/tactics/classify`, `POST /api/v1/battles`, `GET /api/v1/battles/:id` — see the HTTP API and persistence specs for the full contract.
+- `cmd/api/main.go` wires `BasicModerator` + `LocalHeuristicClassifier` (the dev stand-in, still no real LLM) + `PostgresBattleRepository` into the router and runs on `$PORT` (default 8080). Requires `DATABASE_URL`.
+- `TestHTTPPipeline_ClassifyThenBattle` exercises the full path over a real `httptest.Server` and `http.Client`, including the persisted round trip (`POST /battles` → `id` → `GET /battles/:id`), against a real Postgres.
+
+`internal/migrate`, `internal/repository`, `cmd/migrate`, `db/migrations` — persistence:
+
+- `db/migrations/0001_create_battle_sessions.sql` — one table, `battle_sessions`, storing each `BattleLog` as JSONB with `boss_id`/`outcome` denormalized for future filtering.
+- `internal/migrate`: a minimal hand-rolled runner (no framework dependency for one table) — applies pending `NNNN_*.sql` files in order, tracked in `schema_migrations`, idempotent. `cmd/migrate` is the CLI: `go run ./cmd/migrate` (reads `-database` or `$DATABASE_URL`).
+- `internal/repository.PostgresBattleRepository` implements the `service.BattleRepository` port (`Save`/`Get`) via `database/sql` + `pgx/v5/stdlib` — no ORM.
+- Still anonymous: battles aren't tied to a player/session — that's `PlayerSession`/`ClassroomCohort` auth, explicitly separate future work.
+
+Tests that need a real database (`internal/migrate`, `internal/repository`, several `internal/handler` tests) run for real against `TEST_DATABASE_URL`, skipping cleanly if it isn't set — not mocked out. PostgreSQL 16 is installed via Homebrew and running locally in this environment (no Docker here).
 
 ## What's not implemented yet
 
-- Persistence (`internal/repository`, `db/migrations`) — nothing is durable yet; everything above operates on in-memory Go values, one `RunBattle` call at a time, and the HTTP API is fully stateless (client resubmits the classified `intent` on every `/battles` call).
 - A real LLM adapter behind `IntentClassifier` — blocked on provider API access, not on architecture.
-- `ClassroomCohort` / `PlayerSession` auth — no session concept exists yet; every endpoint is open.
-- `GET /readyz` — no external dependency exists yet to check readiness against.
+- `ClassroomCohort` / `PlayerSession` auth — no session concept exists yet; every endpoint is open, and persisted battles are anonymous rows.
+- Automatic migration-applied checks at `cmd/api` startup — relies on running `cmd/migrate` first, by convention, same as Sectr.
 - Mana costs, cooldowns, and boss status effects (`cleanse` has no debuff content to remove yet, and can't target one specific status yet either — see the moderation/classifier spec's open questions) — explicit non-goals of the current iteration.
 
 ## Running checks
@@ -45,4 +54,4 @@ Every piece above has unit tests. `battle_engine_test.go` includes the property 
 make check   # fmt-check, vet, golangci-lint, go test -race
 ```
 
-Requires Go 1.27+ and `golangci-lint` (both installed via Homebrew in this environment).
+Requires Go 1.27+ and `golangci-lint` (both installed via Homebrew). Tests touching persistence additionally need `TEST_DATABASE_URL` (e.g. `postgres://localhost:5432/battle_script_test?sslmode=disable`) pointing at a migrated database; without it they skip rather than fail.
