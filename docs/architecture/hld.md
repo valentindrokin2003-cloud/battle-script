@@ -4,7 +4,7 @@
 
 ## Итог в двух словах
 
-Battle Script — веб-автобаттлер, где ребёнок пишет тактику текстом, LLM переводит её в закрытый набор действий, а бой разыгрывает детерминированный движок. Реализовано и протестировано: доменное ядро боевой системы, HTTP API поверх него и персистентность боёв в PostgreSQL. Не реализовано: сам вызов настоящего LLM, фронтенд, авторизация/`PlayerSession`.
+Battle Script — веб-автобаттлер, где ребёнок пишет тактику текстом, LLM переводит её в закрытый набор действий, а бой разыгрывает детерминированный движок. Реализовано и протестировано: доменное ядро боевой системы, HTTP API поверх него, персистентность боёв в PostgreSQL и web-клиент (React/TS SPA). Полный цикл работает от текста тактики до результата боя. Не реализовано: сам вызов настоящего LLM, авторизация/`PlayerSession`; браузерная проверка UI не выполнена (нет браузерного инструмента в среде разработки).
 
 ## Компоненты и их статус
 
@@ -22,14 +22,14 @@ Battle Script — веб-автобаттлер, где ребёнок пише�
 | HTTP API (7 эндпоинтов: healthz, readyz, bosses×2, classify, battles×2) | ✅ реализован (без auth) | `backend/internal/handler/`, `backend/cmd/api/main.go` |
 | Персистентность боёв (`internal/repository`, `internal/migrate`, `cmd/migrate`, `db/migrations`) | ✅ реализован (только `battle_sessions`, анонимно — без привязки к игроку) | `backend/internal/repository/`, `backend/internal/migrate/` |
 | `ClassroomCohort`/`PlayerSession` авторизация | ❌ не реализована — персистентность есть, но бои анонимны | — |
-| Web-клиент | ❌ не реализован | — |
+| Web-клиент (4 экрана, полная стейт-машина) | ✅ реализован (браузерная проверка не выполнена — нет инструмента в среде) | `web/src/` |
 
 ## Архитектура (целевая, из HLD-спеки)
 
 Backend — модульный монолит, один процесс (`backend-api`) для Фазы 0, без отдельного worker-процесса (осознанное решение — см. [ADR-001](../architecture-decisions.md#adr-001)). Слои: `delivery → application/domain → infrastructure`. Все три реализованы: `delivery` (`internal/handler`), `domain` (`internal/service`), `infrastructure` (`internal/repository`, `internal/migrate` — Postgres).
 
 ```text
-Web App (не реализован)
+Web App: React/TS SPA, web/src (реализован, браузером не проверен) [ЕСТЬ]
   -> Backend API: Gin, cmd/api/main.go, internal/handler (реализован) [ЕСТЬ]
       -> ModerationModule (реализован: BasicModerator) [ЕСТЬ]
       -> IntentClassifier port + retry/fallback-оркестрация (реализованы) [ЕСТЬ]
@@ -40,7 +40,7 @@ Web App (не реализован)
           -> PostgreSQL 16 (battle_sessions, анонимно) [ЕСТЬ]
 ```
 
-Полный путь «сырой текст → действие → сохранённый бой» уже собран и протестирован end-to-end на трёх уровнях: Go-вызовы (`TestFullPipeline_TextToAction`), реальный HTTP поверх `httptest.Server` (`TestHTTPPipeline_ClassifyThenBattle`, включая `POST /battles` → `id` → `GET /battles/{id}`), и вручную через `curl` на живом `go run ./cmd/api` с реальным Postgres. Не хватает только настоящего LLM за портом и авторизации — бои по-прежнему анонимны.
+Полный путь «сырой текст → действие → сохранённый бой» уже собран и протестирован end-to-end на трёх уровнях: Go-вызовы (`TestFullPipeline_TextToAction`), реальный HTTP поверх `httptest.Server` (`TestHTTPPipeline_ClassifyThenBattle`, включая `POST /battles` → `id` → `GET /battles/{id}`), и вручную через `curl` на живом `go run ./cmd/api` с реальным Postgres. Веб-клиент поверх этого пути реализован и покрыт 23 компонентными тестами; сетевой путь через Vite-прокси подтверждён `curl`, но интерактивная браузерная проверка не выполнена. Не хватает настоящего LLM за портом и авторизации — бои по-прежнему анонимны.
 
 ## Доменная модель (реализованная часть)
 
